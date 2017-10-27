@@ -363,6 +363,7 @@ var _execute = function() {
         $("<a />", {
           class: "injected_handler",
           href: "#",
+          title: "Export Shared Observations Metadata (including Comments) to Spreadsheet",
           text: "Export to Spreadsheet",
           style: "margin-left: 1em;"
         }).click(function(e) {
@@ -394,6 +395,7 @@ var _execute = function() {
       }).append(
         $("<a />", {
           class: "injected_handler",
+          title: "Export Shared Journals Metadata to Spreadsheet",
           href: "#",
           text: "Export to Spreadsheet",
           style: "margin-left: 1em;"
