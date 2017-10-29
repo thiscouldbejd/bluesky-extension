@@ -3,7 +3,7 @@
     "name": "Cloudysky",
     "short_name": "Cloudysky",
     "description": "This extension extends functionality of the BlueSky Platform",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "icons": {
         "16": "icon16.png",
         "48": "icon48.png",
@@ -13,9 +13,13 @@
     "content_scripts" : [
         {
             "matches" : [
-              "https://*.blueskyeducation.co.uk/manage/shared-journals",
-              "https://*.blueskyeducation.co.uk/manage/shared-journals*",
-              "https://*.blueskyeducation.co.uk/manage/shared-journals/*",
+              "https://*.blueskyeducation.co.uk/journal",
+              "https://*.blueskyeducation.co.uk/journal?*",
+              "https://*.blueskyeducation.co.uk/journal/?*",
+              "https://*.blueskyeducation.co.uk/journal/index*",
+              "https://*.blueskyeducation.co.uk/*/shared-journals",
+              "https://*.blueskyeducation.co.uk/*/shared-journals*",
+              "https://*.blueskyeducation.co.uk/*/shared-journals/*",
               "https://*.blueskyeducation.co.uk/*/reports/view_observation_report",
               "https://*.blueskyeducation.co.uk/*/reports/view_observation_report*",
               "https://*.blueskyeducation.co.uk/*/reports/view_observation_report/*",
