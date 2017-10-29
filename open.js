@@ -714,7 +714,7 @@ var _execute_Personal_Journal = function(scripts) {
 			e.preventDefault();
 
 			// -- Spinner, Progress & Finish Handler -- //
-			var _status = $("<span />").insertAfter(e.target.parentElement);
+			var _status = $("<span />").insertBefore(e.target.parentElement);
 			var _finish = (function(spinner, status, target) {
 				target.append(spinner.spin().el)
 				return function() {
@@ -775,6 +775,85 @@ var _execute_Personal_Journal = function(scripts) {
 	
 };
 
+var _execute_Evidence_Overview = function(scripts) {
+	
+	$("<li />", {
+		class: "button"
+	}).append(
+		$("<a />", {
+			class: "injected_handler",
+			title: "Export Evidence Tracker to Spreadsheet",
+			href: "#",
+			text: "Export to Spreadsheet",
+			style: "margin-right: 1em;"
+		}).click(function(e) {
+			e.preventDefault();
+
+			// -- Spinner, Progress & Finish Handler -- //
+			var _height = 0;
+			$("body > header").each(function() {
+				_height += $(this).outerHeight(true);
+			});
+			SPIN.top = (($(window).height() - _height)/2) + "px";
+			var _status = $("<span />", {style: "margin-left: 1em;"}).insertBefore(e.target.parentElement);
+			var _finish = (function(spinner, status, target) {
+				target.append(spinner.spin().el)
+				return function() {
+					status.text("").remove();
+					spinner.stop();
+				}
+			})(new Spinner(SPIN), _status, $("#content"));
+			var _progress = (function(status) {
+				return function(message) {
+					status.text(message);
+				}
+			})(_status);
+			// -- Spinner, Progress & Finish Handler -- //
+
+			Promise.all(scripts).then(() => {
+				try {
+					
+					// == COMPLETION == //
+					var _complete = function(rows) {
+						// -- Export -- //
+						var _exportBook = new Workbook();
+
+						// -- Add Values to Output -- //
+						_exportBook.SheetNames.push("DATA");
+						_exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(rows);
+
+						Formulas(_exportBook.Sheets.DATA);
+
+						// -- Save Output -- //
+						outputAndSave(_exportBook, "xlsx", "Evidence Tracker.xlsx").then(() => {
+							_finish();
+						});
+					};
+					// == COMPLETION == //
+					
+					// -- CREATE EVIDENCE TRACKER -- //
+					
+					// -- PLACEHOLDER -- //
+					DELAY(1000).then(() => _progress("25%"));
+					DELAY(2000).then(() => _progress("50%"));
+					DELAY(3000).then(() => _progress("75%"));
+					DELAY(4000).then(() => _progress("100%"));
+					DELAY(5000).then(() => _finish());
+					
+				} catch (e) {
+					console.error("Failed to Export Evidence Tracker", e);
+					_finish();
+				}
+			}).catch(e => {
+				console.log("FAILED to Load XLSX/Filesaver for export", e);
+				_finish();
+			});
+
+		})
+	).prependTo($("#content > ul.actions"));
+	
+};
+
 var _execute = function() {
 
   var _scripts = [
@@ -797,6 +876,11 @@ var _execute = function() {
 		
 		// Personal Journal //
 		_execute_Personal_Journal(_scripts);
+		
+	} else if (((/(\/evidence_overview)($|\/|\?|\#)/i).test(location.pathname))) {
+		
+		// Evidence Overview //
+		_execute_Evidence_Overview(_scripts);
 		
   } else {
 
