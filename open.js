@@ -161,6 +161,26 @@ var complete_Spreadsheet = function(name, finish) {
 	
 };
 
+var busy = function(spinner_Options, spinner_Target, status_Target, status_Style) {
+	
+	var _status = $("<span />", {style : status_Style ? status_Style : ""}).insertBefore(status_Target);
+	return {
+		finish : (function(spinner, status, target) {
+				target.append(spinner.spin().el)
+				return function() {
+					status.text("").remove();
+					spinner.stop();
+				}
+			})(new Spinner(spinner_Options), _status, spinner_Target),
+		progress : (function(status) {
+				return function(message) {
+					status.text(message);
+				}
+			})(_status)
+	}
+	
+}
+
 var export_Observations = function(title, table, finish, progress) {
 
   if (table) {
@@ -348,6 +368,69 @@ var export_Observations = function(title, table, finish, progress) {
 
 };
 
+var export_Reviews = function(action, container, target, full) {
+	
+	return new Promise((resolve, reject) => {
+		
+		try {
+			
+			var _return = [], _groupings = container.find(target + " > h2"), _total = container.find(target + " > table tbody tr").length;
+			
+			if (_groupings.length > 0 && _total > 0) {
+			
+				for (var i = 0; i < _groupings.length; i++) {
+
+					var _grouping = $(_groupings[i]);
+					var _group = _grouping.text().trim();
+					var _tables = _grouping.nextUntil("h2, div.new_pagination");
+
+					for (var j = 0; j < _tables.length; j++) {
+
+						var _entries = _tables.find("tbody tr");
+						
+						for (var k = 0; k < _entries.length; k++) {
+							
+							var _review = action(_group, $(_entries[k]));
+
+							var _complete = function(review) {
+								_return.push(review);
+								if (_return.length == _total) resolve(_return);	// Resolve|Complete when we're done
+							};
+
+							if (full) {
+
+								// -- Not Yet Implemented -- //
+								console.log(_review.url);
+								console.log(_review.evidence_url);
+
+							} else {
+
+								_complete(_review.data);
+
+							}
+							
+						}
+
+					}
+
+				}
+				
+			} else {
+				
+				resolve();
+				
+			}
+
+		} catch(e) {
+			
+			reject(e);
+			
+		}
+		
+  });
+	
+}
+
 var download_Journal_Entry = function(journal, url, complete) {
 
 	if (url) {
@@ -440,6 +523,24 @@ var export_Journals = function(action, container, target, full) {
   });
 	
 }
+
+var parse_Reviews = function(group, entry) {
+	
+	var _cells = entry.children("td");
+	var _profession = _cells[0].innerText;
+	var _link = $(_cells[1]).find("a")[0], _url = _link.getAttribute("href"), _review = '=HYPERLINK("' + (_url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + 
+									_url +  '","' + _link.innerText + '")';
+	var _version = _cells[2].innerText;
+	var _started = _cells[3].innerText;
+	var _responses = _cells[4].innerText;
+	var _evidence_Link = $(_cells[5]).find("a")[0], _evidence_Url = _evidence_Link.getAttribute("href"), 
+			_evidence = '=HYPERLINK("' + (_evidence_Url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + _evidence_Url +  '","' + _evidence_Link.innerText + '")';
+	
+	return {url : _url, evidence: _evidence_Url, data : [
+		group, _profession, _review, _version, _started, _responses, _evidence
+	]};
+	
+};
 
 var parse_Shared_Journals = function(group, entry) {
 	
@@ -602,20 +703,7 @@ var _execute_Observation_Report = function(scripts) {
 					_height += $(this).outerHeight(true);
 				});
 				SPIN.top = (($(window).height() - _height)/2) + "px";
-				var _status = $("<span />", {style: "margin-left: 1em;"}).appendTo(e.target.parentElement);
-				var _finish = (function(spinner, status, target) {
-					target.append(spinner.spin().el)
-					return function() {
-						status.text("").remove();
-						spinner.stop();
-					}
-				})(new Spinner(SPIN), _status, $("#content_main"));
-				var _progress = (function(status) {
-					return function(message) {
-						status.text(message);
-					}
-				})(_status);
-				// -- Spinner, Progress & Finish Handler -- //
+				var _busy = busy(SPIN, $("#content_main"), e.target.parentElement, "margin-left: 1em;");
 
 				Promise.all(scripts).then(() => {
 					try {
@@ -623,14 +711,14 @@ var _execute_Observation_Report = function(scripts) {
 						var __title = "";
 						for (var i = 0; i < _title.childNodes.length; ++i) if (_title.childNodes[i].nodeType === 3) 
 							__title += (_title.childNodes[i].textContent ? _title.childNodes[i].textContent.trim() : "");
-						export_Observations(__title, $("table.report_table").first(), _finish, _progress);
+						export_Observations(__title, $("table.report_table").first(), _busy.finish, _busy.progress);
 					} catch (e) {
 						console.error("Failed to Export Observations", e);
-						_finish();
+						_busy.finish();
 					}
 				}).catch(e => {
 					console.log("FAILED to Load XLSX/Filesaver for export", e);
-					_finish();
+					_busy.finish();
 				});
 
 			})
@@ -646,53 +734,27 @@ var _execute_Shared_Journals = function(scripts) {
 			e.preventDefault();
 
 			// -- Spinner, Progress & Finish Handler -- //
-			var _status = $("<span />", {style: "margin-left: 1em;"}).insertAfter(e.target.parentElement);
-			var _finish = (function(spinner, status, target) {
-				target.append(spinner.spin().el)
-				return function() {
-					status.text("").remove();
-					spinner.stop();
-				}
-			})(new Spinner(SPIN), _status, $("div.content-wrapper"));
-			var _progress = (function(status) {
-				return function(message) {
-					status.text(message);
-				}
-			})(_status);
-			// -- Spinner, Progress & Finish Handler -- //
+			var _busy = busy(SPIN, $("div.content-wrapper"), e.target.parentElement, "margin-left: 1em;");
 
 			Promise.all(scripts).then(() => {
 				try {
 					
-					var _rows = [];
-					_rows.push(["Person", "Date", "Entry Name", "Evidence", "Comments"].concat(full ? ["Details", "Comment Details"] : []));
-					
-					export_Journals(parse_Shared_Journals, $, "#content", full).then(new_rows => {
+					export_Journals(parse_Shared_Journals, $, "#content", full).then(rows => {
 						
-						if (new_rows && new_rows.length > 0) {
-							
-							// == Add Current Page == //
-							_rows = _rows.concat(new_rows);
-							
-							// == Check Pages == //
-							export_Pages($("div.new_pagination"), export_Journals, parse_Shared_Journals, _progress, 
-													 complete_Spreadsheet("Shared Journals" + (full ? " [FULL]" : "") + ".xlsx", _finish), _rows, "#content", full);	
-							
-						} else {
-
-							_finish();
-							
-						}
+						(rows && rows.length > 0) ?
+							export_Pages($("div.new_pagination"), export_Journals, parse_Shared_Journals, _busy.progress, complete_Spreadsheet("Shared Journals" + (full ? " [FULL]" : "") + ".xlsx", _busy.finish),
+													 [["Person", "Date", "Entry Name", "Evidence", "Comments"].concat(full ? ["Details", "Comment Details"] : [])].concat(rows), "#content", full) :
+							_busy.finish();
 						
 					});
 					
 				} catch (e) {
-					console.error("Failed to Export Observations", e);
-					_finish();
+					console.error("Failed to Export Shared Journals", e);
+					_busy.finish();
 				}
 			}).catch(e => {
 				console.log("FAILED to Load XLSX/Filesaver for export", e);
-				_finish();
+				_busy.finish();
 			});
 		}
 	}
@@ -730,50 +792,27 @@ var _execute_Personal_Journal = function(scripts) {
 			e.preventDefault();
 
 			// -- Spinner, Progress & Finish Handler -- //
-			var _status = $("<span />").insertBefore(e.target.parentElement);
-			var _finish = (function(spinner, status, target) {
-				target.append(spinner.spin().el)
-				return function() {
-					status.text("").remove();
-					spinner.stop();
-				}
-			})(new Spinner(SPIN), _status, $("#content"));
-			var _progress = (function(status) {
-				return function(message) {
-					status.text(message);
-				}
-			})(_status);
-			// -- Spinner, Progress & Finish Handler -- //
+			var _busy = busy(SPIN, $("#content"), e.target.parentElement);
 
 			Promise.all(scripts).then(() => {
 				try {
-										
-					var _requests = 0, _rows = [["Month", "Date", "Entry Name", "Progress", "Shared", "Evidence", "Comments", "Details", "Comment Details"]];
-					export_Journals(parse_Personal_Journals, $, "#content_main", true).then(new_rows => {
-					
-						if (new_rows && new_rows.length > 0) {
-							
-							// == Add Current Page == //
-							_rows = _rows.concat(new_rows);
 
-							// == Check Pages == //
-							export_Pages($("div.new_pagination"), export_Journals, parse_Personal_Journals, _progress, complete_Spreadsheet("Personal Journals.xlsx", _finish), _rows, "#content_main", true);
-							
-						} else {
-							
-							_finish();
-							
-						}
+					export_Journals(parse_Personal_Journals, $, "#content_main", true).then(rows => {
+					
+						(rows && rows.length > 0) ?
+							export_Pages($("div.new_pagination"), export_Journals, parse_Personal_Journals, _busy.progress, complete_Spreadsheet("Personal Journals.xlsx", _busy.finish), 
+													 [["Month", "Date", "Entry Name", "Progress", "Shared", "Evidence", "Comments", "Details", "Comment Details"]].concat(rows), "#content_main", true) :
+							_busy.finish();
 						
 					});
 					
 				} catch (e) {
-					console.error("Failed to Export Observations", e);
-					_finish();
+					console.error("Failed to Export Personal Journal", e);
+					_busy.finish();
 				}
 			}).catch(e => {
 				console.log("FAILED to Load XLSX/Filesaver for export", e);
-				_finish();
+				_busy.finish();
 			});
 		};
 	};
@@ -812,19 +851,7 @@ var _execute_Evidence_Overview = function(scripts) {
 				_height += $(this).outerHeight(true);
 			});
 			SPIN.top = (($(window).height() - _height)/2) + "px";
-			var _status = $("<span />", {style: "margin-left: 1em;"}).insertBefore(e.target.parentElement);
-			var _finish = (function(spinner, status, target) {
-				target.append(spinner.spin().el)
-				return function() {
-					status.text("").remove();
-					spinner.stop();
-				}
-			})(new Spinner(SPIN), _status, $("#content"));
-			var _progress = (function(status) {
-				return function(message) {
-					status.text(message);
-				}
-			})(_status);
+			var _busy = busy(SPIN, $("#content"), e.target.parentElement, "margin-left: 1em;");
 			// -- Spinner, Progress & Finish Handler -- //
 
 			Promise.all(scripts).then(() => {
@@ -847,7 +874,6 @@ var _execute_Evidence_Overview = function(scripts) {
 									message = $(message);
 									var _user = "", _date = "";
 									var _details = message.find("small em").text();
-									console.log("DETAILS:", _details);
 									if (_details && _details.split(", ").length == 2) {
 										_date = _details.split(", ")[0].trim();
 										_user = _details.split(", ")[1].trim();
@@ -895,22 +921,65 @@ var _execute_Evidence_Overview = function(scripts) {
 					
 					// -- Output -- //
 					if (_data.length > 1) {
-						complete_Spreadsheet("Evidence Tracker.xlsx", _finish)(_data);
+						complete_Spreadsheet("Evidence Tracker.xlsx", _busy.finish)(_data);
 					} else {
-						_finish();
+						_busy.finish();
 					}
 					
 				} catch (e) {
 					console.error("Failed to Export Evidence Tracker", e);
-					_finish();
+					_busy.finish();
 				}
 			}).catch(e => {
 				console.log("FAILED to Load XLSX/Filesaver for export", e);
-				_finish();
+				_busy.finish();
 			});
 
 		})
 	).prependTo($("#content > ul.actions"));
+	
+};
+
+var _execute_Reviews = function(scripts) {
+	
+	$("<span />", {
+		class: "button"
+	}).append(
+		$("<a />", {
+			class: "injected_handler",
+			title: "Export Reviews Metadata to Spreadsheet",
+			href: "#",
+			text: "Export to Spreadsheet",
+			style: "margin-left: 1em;"
+		}).click(function(e) {
+			e.preventDefault();
+			
+			// -- Spinner, Progress & Finish Handler -- //
+			var _busy = busy(SPIN, $("#content"), e.target.parentElement);
+
+			Promise.all(scripts).then(() => {
+				try {
+
+					export_Reviews(parse_Reviews, $, "#content_main", false).then(new_rows => {
+					
+						(new_rows && new_rows.length > 0) ?
+							export_Pages($("div.new_pagination"), export_Reviews, parse_Reviews, _busy.progress, complete_Spreadsheet("Reviews.xlsx", _busy.finish),
+													 [["Person", "Profession", "Review", "Version", "Started", "Responses", "Evidence"]].concat(new_rows), "#content_main", false) :
+							_busy.finish;
+						
+					});
+					
+				} catch (e) {
+					console.error("Failed to Export Reviews", e);
+					_busy.finish;
+				}
+			}).catch(e => {
+				console.log("FAILED to Load XLSX/Filesaver for export", e);
+				_busy.finish;
+			});
+
+		})
+	).insertAfter($("fieldset.filters input[type='submit']"));
 	
 };
 
@@ -941,6 +1010,11 @@ var _execute = function() {
 		
 		// Evidence Overview //
 		_execute_Evidence_Overview(_scripts);
+		
+	} else if (((/(\/reviews\/index)($|\/|\?|\#)/i).test(location.pathname))) {
+		
+		// Reviews //
+		_execute_Reviews(_scripts);
 		
   } else {
 
