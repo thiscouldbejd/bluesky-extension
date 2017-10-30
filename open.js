@@ -1,4 +1,4 @@
-const MAX_REQUESTS = 8;
+const MAX_REQUESTS = 4;
 const DELAY = ms => new Promise(resolve => setTimeout(resolve, ms));
 const RANDOM = (lower, higher) => Math.random() * (higher - lower) + lower;
 const SPIN = {
@@ -141,6 +141,26 @@ var outputAndSave = function(book, type, filename) {
 
 };
 
+var complete_Spreadsheet = function(name, finish) {
+	
+	return function(rows) {
+		// -- Export -- //
+		var _exportBook = new Workbook();
+
+		// -- Add Values to Output -- //
+		_exportBook.SheetNames.push("DATA");
+		_exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(rows);
+
+		Formulas(_exportBook.Sheets.DATA);
+
+		// -- Save Output -- //
+		outputAndSave(_exportBook, "xlsx", name).then(() => {
+			if (finish) finish();
+		});
+	};
+	
+};
+
 var export_Observations = function(title, table, finish, progress) {
 
   if (table) {
@@ -175,7 +195,6 @@ var export_Observations = function(title, table, finish, progress) {
     
     var _complete = function() {
       
-      var _exportBook = new Workbook();
       var _safeName = {
         "\\": "",
         "/": "",
@@ -186,18 +205,8 @@ var export_Observations = function(title, table, finish, progress) {
         "_": ""
       };
 
-      // -- Add Values to Output -- //
-      _exportBook.SheetNames.push("DATA");
-      _exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(_values && _values.length > 0 ? _values : []);
-
-      // -- Deal with Formulas -- //
-      Formulas(_exportBook.Sheets.DATA);
-      
-      // -- Save Output -- //
-      var _title = RegExp.replaceChars(title, _safeName).trim();
-      outputAndSave(_exportBook, "xlsx", _title + ".xlsx").then(() => {
-        if (finish) finish();
-      });
+			complete_Spreadsheet(RegExp.replaceChars(title, _safeName).trim() + ".xlsx", finish)(_values);
+			
     }
     
     for (i = 0; i < _rows.length; i++) {
@@ -272,8 +281,8 @@ var export_Observations = function(title, table, finish, progress) {
             var _comments = _html.find(".notes ul li:not(.reply-form)");
             if (_comments.length > 0) {
               for (var k = 0; k < _comments.length; k++) {
-                var _comment = $(_comments[k]), _details = _comment.find(".message > p")[0].innerText, 
-                    _author = _comment.find(".byline > p")[0].innerText, __comment = [];
+                var _comment = $(_comments[k]), _details = _comment.find(".message > p").text(), 
+                    _author = _comment.find(".byline > p").text(), __comment = [];
                 if (_author) {
                   __comment = _author.split(", ");
                   var _total = __comment.length;
@@ -325,9 +334,12 @@ var export_Observations = function(title, table, finish, progress) {
           _try();
 
         })(_values.length, _row, _url)
+				
       } else {
+				
         _values.push(_row);
         if (_values.length == _total) _complete();
+				
       }
 
     }
@@ -336,151 +348,152 @@ var export_Observations = function(title, table, finish, progress) {
 
 };
 
-var export_Journals = function(container) {
-	
-	return new Promise((resolve, reject) => {
-		
-		try {
-			var _return = [], _groupings = container.find("#content > h2");
-			for (var i = 0; i < _groupings.length; i++) {
+var download_Journal_Entry = function(journal, url, complete) {
 
-				var _grouping = $(_groupings[i]);
-				var _person = _grouping.text().trim();
-				var _entries = _grouping.nextUntil("h2, div.new_pagination");
+	if (url) {
 
-				for (var j = 0; j < _entries.length; j++) {
+		silent_Fetch(url).then(html => {
 
-					var _entry = $(_entries[j]);
-					var _date = _entry.find(".journal-shared-index-date").text();
-					if (_date) _date = _date.trim();
-					var _name;
-					var _link = _entry.find("a")[0];
-					if (_link) {
-						var _url = _link.getAttribute("href");
-						_name = '=HYPERLINK("' + (_url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + 
-													_url +  '","' + _link.innerText + '")';
-					} else {
-						_name = _entry.find("a").text();
-					}
+			// == PARSE JOURNAL ENTRY == //
+			var _details = $(html), _content = _details.find("#content_main article.journal-view-entry > p").text();
+			journal.push(_content ? _content : "");
 
-					var _evidence = (_entry.find("strong.paperclip-2").length == 1);
-					var _comments = (_entry.find("strong.comment-2").length == 1);
+			var _comments = _details.find("#comments-box ul.comments li.comment, #comments ul.comments li.comment");
 
-					var _journal = [
-						_person, _date, _name,
-						_evidence ? "TRUE" : "", _comments ? "TRUE" : ""
-					];
-					_return.push(_journal);
-				}
+			for (var c = 0; c < _comments.length; c++) {
+
+				var _comment = $(_comments[c]);
+				var _date = _comment.find(".comment-block p.timestamp span.time").text();
+				var _username = _comment.find(".comment-block p.timestamp span.username").text();
+				var _text = _comment.find(".comment-block > p:not(.timestamp)").text();
+
+				journal.push(_date ? _date : "");
+				journal.push(_username ? _username : "");
+				journal.push(_text ? _text : "");
 
 			}
 
-			resolve(_return);
-	
-		} catch(e) {
-			reject(e);
-		}
-		
-  });
-	
+			complete(journal);
+
+		}).catch((e) => {
+			console.log("Failed to fetch " + url, e);
+			complete(journal);
+		});
+
+	} else {
+		complete(journal);
+	}
+
 };
 
-var export_JournalEntries = function(container) {
+var export_Journals = function(action, container, target, full) {
 	
 	return new Promise((resolve, reject) => {
 		
 		try {
-			var _return = [], _groupings = container.find("#content_main > h2"), _total = container.find("#content_main > article.journal-entry").length;
-			for (var i = 0; i < _groupings.length; i++) {
+			
+			var _return = [], _groupings = container.find(target + " > h2"), _total = container.find(target + " > article.journal-entry").length;
+			
+			if (_groupings.length > 0 && _total > 0) {
+			
+				for (var i = 0; i < _groupings.length; i++) {
 
-				var _grouping = $(_groupings[i]);
-				var _month = _grouping.text().trim();
-				var _entries = _grouping.nextUntil("h2, div.new_pagination");
-				
-				for (var j = 0; j < _entries.length; j++) {
+					var _grouping = $(_groupings[i]);
+					var _group = _grouping.text().trim();
+					var _entries = _grouping.nextUntil("h2, div.new_pagination");
 
-					var _entry = $(_entries[j]);
-					var _children = _entry.find("ul li:not(.journal-notification)");
+					for (var j = 0; j < _entries.length; j++) {
 
-					var _date = _children[0].innerText;
-					if (_date) _date = _date.trim();
+						var _journal = action(_group, $(_entries[j]));
 
-					var _name, _link = $(_children[1]).find("a")[0], _url;0
-					if (_link) {
-						_url = _link.getAttribute("href");
-						_url = (_url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + _url;
-						_name = '=HYPERLINK("' + _url +  '","' + _link.innerText + '")';
-					} else {
-						_name = _entry.find("a").text();
-					}
-
-					var _progress = (_entry.find("strong.signal-bars-1").length == 1);
-					var _shared = (_entry.find("strong.user-2").length == 1);
-					var _evidence = (_entry.find("strong.paperclip-2").length == 1);
-					var _comments = (_entry.find("strong.comment-2").length == 1);
-
-					var _journal = [
-						_month, _date, _name,
-						_progress ? "TRUE" : "", _shared ? "TRUE" : "",
-						_evidence ? "TRUE" : "", _comments ? "TRUE" : ""
-					];
-
-					(function(journal, url, total) {
-						
-						var _complete = function() {
+						var _complete = function(journal) {
 							_return.push(journal);
-							if (_return.length == total) resolve(_return);	// Resolve|Complete when we're done
+							if (_return.length == _total) resolve(_return);	// Resolve|Complete when we're done
 						};
-						
-						if (url) {
-							
-							silent_Fetch(url).then(html => {
-								
-								// == PARSE JOURNAL ENTRY == //
-								var _details = $(html), _content = _details.find("#content_main article.journal-view-entry > p").text();
-								journal.push(_content ? _content : "");
-								
-								var _comments = _details.find("#comments-box ul.comments li.comment");
-								
-								for (var c = 0; c < _comments.length; c++) {
-									
-									var _comment = $(_comments[c]);
-									var _date = _comment.find(".comment-block p.timestamp span.time").text();
-									var _username = _comment.find(".comment-block p.timestamp span.username").text();
-									var _text = _comment.find(".comment-block > p:not(.timestamp)").text();
-									
-									journal.push(_date ? _date : "");
-									journal.push(_username ? _username : "");
-									journal.push(_text ? _text : "");
-									
-								}
-								
-								_complete();
-								
-							}).catch((e) => {
-								console.log("Failed to fetch " + url, e);
-								_complete();
-							});
-							
-						} else {
-							_complete();
-						}
-						 
-					})(_journal, _url, _total);
-					
-				}
 
+						if (full) {
+
+							download_Journal_Entry(_journal.data, _journal.url, _complete);
+
+						} else {
+
+							_complete(_journal.data);
+
+						}
+
+					}
+
+				}
+				
+			} else {
+				
+				resolve();
+				
 			}
 
 		} catch(e) {
+			
 			reject(e);
+			
 		}
 		
   });
 	
+}
+
+var parse_Shared_Journals = function(group, entry) {
+	
+	var _date = entry.find(".journal-shared-index-date").text();
+	if (_date) _date = _date.trim();
+	var _name, _link = entry.find("a")[0], _url;
+	if (_link) {
+		_url = _link.getAttribute("href");
+		_name = '=HYPERLINK("' + (_url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + 
+									_url +  '","' + _link.innerText + '")';
+	} else {
+		_name = entry.find("a").text();
+	}
+
+	var _evidence = (entry.find("strong.paperclip-2").length == 1);
+	var _comments = (entry.find("strong.comment-2").length == 1);
+
+	return {url : _url, data : [
+		group, _date, _name,
+		_evidence ? "TRUE" : "", _comments ? "TRUE" : ""
+	]};
+	
 };
 
-var export_Pages = function(container, action, progress, completion, rows) {
+var parse_Personal_Journals = function(group, entry) {
+	
+	var _children = entry.find("ul li:not(.journal-notification)");
+
+	var _date = _children[0].innerText;
+	if (_date) _date = _date.trim();
+
+	var _name, _link = $(_children[1]).find("a")[0], _url;
+	if (_link) {
+		_url = _link.getAttribute("href");
+		_url = (_url.indexOf("/") === 0 ? (location.protocol + "//" + location.hostname) : "") + _url;
+		_name = '=HYPERLINK("' + _url +  '","' + _link.innerText + '")';
+	} else {
+		_name = entry.find("a").text();
+	}
+
+	var _progress = (entry.find("strong.signal-bars-1").length == 1);
+	var _shared = (entry.find("strong.user-2").length == 1);
+	var _evidence = (entry.find("strong.paperclip-2").length == 1);
+	var _comments = (entry.find("strong.comment-2").length == 1);
+
+	return {url : _url, data : [
+		group, _date, _name,
+		_progress ? "TRUE" : "", _shared ? "TRUE" : "",
+		_evidence ? "TRUE" : "", _comments ? "TRUE" : ""
+	]};
+
+};
+
+var export_Pages = function(container, action, parse, progress, completion, rows, target, full) {
 	
 	// == Check Pages == //
 	var _first = container.find("li.current").first();
@@ -509,7 +522,7 @@ var export_Pages = function(container, action, progress, completion, rows) {
 
 			// Closure to preserve output ordering
 			(function(index, url) {
-				var _tries = 0, _max_Tries = 200;
+				var _tries = 0, _max_Tries = 500;
 				var _try = function() {
 					_tries += 1;
 					if (_tries <_max_Tries) {
@@ -519,7 +532,7 @@ var export_Pages = function(container, action, progress, completion, rows) {
 
 							silent_Fetch(url).then(html => {
 
-								action($(html)).then(new_rows => {
+								action(parse, $(html), target, full).then(new_rows => {
 								
 									// Decrement the Request Total
 									_requests -= 1;
@@ -550,10 +563,11 @@ var export_Pages = function(container, action, progress, completion, rows) {
 								console.log("Failed to fetch " + url, e);
 							});  
 						} else {
-							DELAY(1000).then(() => _try());
+							DELAY(2000).then(() => _try());
 						}  
 					} else {
 						console.error("Reached Maximum Re-Tries");
+						_current += 1;
 					}
 				};
 				_try();
@@ -626,16 +640,9 @@ var _execute_Observation_Report = function(scripts) {
 };
 
 var _execute_Shared_Journals = function(scripts) {
-	$("<span />", {
-		class: "button"
-	}).append(
-		$("<a />", {
-			class: "injected_handler",
-			title: "Export Shared Journals Metadata to Spreadsheet",
-			href: "#",
-			text: "Export to Spreadsheet",
-			style: "margin-left: 1em;"
-		}).click(function(e) {
+	
+	var _handler = function(full) {
+		return function(e) {
 			e.preventDefault();
 
 			// -- Spinner, Progress & Finish Handler -- //
@@ -657,32 +664,25 @@ var _execute_Shared_Journals = function(scripts) {
 			Promise.all(scripts).then(() => {
 				try {
 					
-					// == COMPLETION == //
-					var _complete = function(rows) {
-						// -- Export -- //
-						var _exportBook = new Workbook();
+					var _rows = [];
+					_rows.push(["Person", "Date", "Entry Name", "Evidence", "Comments"].concat(full ? ["Details", "Comment Details"] : []));
+					
+					export_Journals(parse_Shared_Journals, $, "#content", full).then(new_rows => {
+						
+						if (new_rows && new_rows.length > 0) {
+							
+							// == Add Current Page == //
+							_rows = _rows.concat(new_rows);
+							
+							// == Check Pages == //
+							export_Pages($("div.new_pagination"), export_Journals, parse_Shared_Journals, _progress, 
+													 complete_Spreadsheet("Shared Journals" + (full ? " [FULL]" : "") + ".xlsx", _finish), _rows, "#content", full);	
+							
+						} else {
 
-						// -- Add Values to Output -- //
-						_exportBook.SheetNames.push("DATA");
-						_exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(rows);
-
-						Formulas(_exportBook.Sheets.DATA);
-
-						// -- Save Output -- //
-						outputAndSave(_exportBook, "xlsx", "Shared Journals.xlsx").then(() => {
 							_finish();
-						});
-					};
-					// == COMPLETION == //
-
-					var _rows = [["Person", "Date", "Entry Name", "Evidence", "Comments"]];
-					export_Journals($).then(new_rows => {
-						
-						// == Add Current Page == //
-						_rows = _rows.concat(new_rows);
-						
-						// == Check Pages == //
-						export_Pages($("div.new_pagination"), export_Journals, _progress, _complete, _rows);
+							
+						}
 						
 					});
 					
@@ -694,14 +694,22 @@ var _execute_Shared_Journals = function(scripts) {
 				console.log("FAILED to Load XLSX/Filesaver for export", e);
 				_finish();
 			});
-
-		})
-	).insertAfter($("fieldset.filters input[type='submit']"));
-};
-
-var _execute_Personal_Journal = function(scripts) {
+		}
+	}
 	
-	$("<li />", {
+	$("<span />", {
+		class: "button"
+	}).append(
+		$("<a />", {
+			class: "injected_handler",
+			title: "Export Shared Journals (including entries) to Spreadsheet",
+			href: "#",
+			text: "Export Journals",
+			style: "margin-left: 1em;"
+		}).click(_handler(true))
+	).insertAfter($("fieldset.filters input[type='submit']"));
+	
+	$("<span />", {
 		class: "button"
 	}).append(
 		$("<a />", {
@@ -709,8 +717,16 @@ var _execute_Personal_Journal = function(scripts) {
 			title: "Export Shared Journals Metadata to Spreadsheet",
 			href: "#",
 			text: "Export to Spreadsheet",
-			style: "margin-right: 1em;"
-		}).click(function(e) {
+			style: "margin-left: 1em;"
+		}).click(_handler(false))
+	).insertAfter($("fieldset.filters input[type='submit']"));
+	
+};
+
+var _execute_Personal_Journal = function(scripts) {
+	
+	var _handler = function(full) {
+		return function(e) {
 			e.preventDefault();
 
 			// -- Spinner, Progress & Finish Handler -- //
@@ -731,33 +747,23 @@ var _execute_Personal_Journal = function(scripts) {
 
 			Promise.all(scripts).then(() => {
 				try {
-					
-					// == COMPLETION == //
-					var _complete = function(rows) {
-						// -- Export -- //
-						var _exportBook = new Workbook();
-
-						// -- Add Values to Output -- //
-						_exportBook.SheetNames.push("DATA");
-						_exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(rows);
-
-						Formulas(_exportBook.Sheets.DATA);
-
-						// -- Save Output -- //
-						outputAndSave(_exportBook, "xlsx", "Personal Journals.xlsx").then(() => {
-							_finish();
-						});
-					};
-					// == COMPLETION == //
-					
+										
 					var _requests = 0, _rows = [["Month", "Date", "Entry Name", "Progress", "Shared", "Evidence", "Comments", "Details", "Comment Details"]];
-					export_JournalEntries($).then(new_rows => {
+					export_Journals(parse_Personal_Journals, $, "#content_main", true).then(new_rows => {
 					
-						// == Add Current Page == //
-						_rows = _rows.concat(new_rows);
-					
-						// == Check Pages == //
-						export_Pages($("div.new_pagination"), export_JournalEntries, _progress, _complete, _rows);
+						if (new_rows && new_rows.length > 0) {
+							
+							// == Add Current Page == //
+							_rows = _rows.concat(new_rows);
+
+							// == Check Pages == //
+							export_Pages($("div.new_pagination"), export_Journals, parse_Personal_Journals, _progress, complete_Spreadsheet("Personal Journals.xlsx", _finish), _rows, "#content_main", true);
+							
+						} else {
+							
+							_finish();
+							
+						}
 						
 					});
 					
@@ -769,8 +775,19 @@ var _execute_Personal_Journal = function(scripts) {
 				console.log("FAILED to Load XLSX/Filesaver for export", e);
 				_finish();
 			});
-
-		})
+		};
+	};
+		
+	$("<li />", {
+		class: "button"
+	}).append(
+		$("<a />", {
+			class: "injected_handler",
+			title: "Export Journal Entries to Spreadsheet",
+			href: "#",
+			text: "Export to Spreadsheet",
+			style: "margin-right: 1em;"
+		}).click(_handler(true))
 	).prependTo($("#content > ul.actions"));
 	
 };
@@ -813,32 +830,75 @@ var _execute_Evidence_Overview = function(scripts) {
 			Promise.all(scripts).then(() => {
 				try {
 					
-					// == COMPLETION == //
-					var _complete = function(rows) {
-						// -- Export -- //
-						var _exportBook = new Workbook();
-
-						// -- Add Values to Output -- //
-						_exportBook.SheetNames.push("DATA");
-						_exportBook.Sheets.DATA = XLSX.utils.aoa_to_sheet(rows);
-
-						Formulas(_exportBook.Sheets.DATA);
-
-						// -- Save Output -- //
-						outputAndSave(_exportBook, "xlsx", "Evidence Tracker.xlsx").then(() => {
-							_finish();
-						});
-					};
-					// == COMPLETION == //
-					
 					// -- CREATE EVIDENCE TRACKER -- //
+					var _rows = [], _dimensions = $("#content_main .evidence-container.dimension, #content .evidence-container.dimension");
 					
-					// -- PLACEHOLDER -- //
-					DELAY(1000).then(() => _progress("25%"));
-					DELAY(2000).then(() => _progress("50%"));
-					DELAY(3000).then(() => _progress("75%"));
-					DELAY(4000).then(() => _progress("100%"));
-					DELAY(5000).then(() => _finish());
+					for (var i = 0; i < _dimensions.length; i++) {
+						var _dimension = $(_dimensions[i]), _children = _dimension.children(), _title = _dimension.children("h2").text(), _subTitle;
+						for (var j = 0; j < _children.length; j++) {
+							var _child = _children[j];
+							if (_child.nodeName.toLowerCase() == "h3") {
+								_subTitle = _child.innerText;
+							} else if (_child.nodeName.toLowerCase() == "div" && _child.classList.contains("evidence-set")) {
+								
+								// -- Handle Comments -- //
+								var _conversation = $(_child).find(".evidence-comments > h4 + ul.conversation"), _comments = [];
+								if (_conversation.length > 0) $(_conversation).find("li .message").each(function(i, message) {
+									message = $(message);
+									var _user = "", _date = "";
+									var _details = message.find("small em").text();
+									console.log("DETAILS:", _details);
+									if (_details && _details.split(", ").length == 2) {
+										_date = _details.split(", ")[0].trim();
+										_user = _details.split(", ")[1].trim();
+									} else if (_details) {
+										_user = _details;
+									}
+									_comments.push(_user);
+									_comments.push(_date);
+									var _text = message.children("p").text();
+									if (_details) _text = _text.substr(0, _text.length - _details.length);
+									_comments.push(_text.trim());
+								});
+								
+								// -- Handle Evidence -- //
+								var _evidence = $(_child).find(".evidence-attachments > h5 + ul");
+								for (var k = 0; k < _evidence.length; k++) {
+									var _list = $(_evidence[k]), _type = _list.prev("h5").text();
+									if (_type && _type.substring(_type.length - 1, 1) == "s") _type.substring(0, _type.length -1);
+									_list.find("li a").each(function(i, link) {
+										var _url = link.getAttribute("href");
+										var _name = link.innerText;
+										if (_name.indexOf(" Uploaded: ") >= 0) {
+											_name = _name.split(" Uploaded: ");
+											_rows.push({dimension: _title, details: _subTitle, name: _name[0], link: _url, date: _name[1], comments: _comments});
+										} else {
+											_rows.push({dimension: _title, details: _subTitle, name: _name, link: _url, comments: _comments});
+										}
+									});
+								}
+							}
+						}
+					}
+					
+					var _data = [["Title", "Details", "Evidence", "Date", "Comments", "Comment Details"]];
+					
+					for (var m = 0; m < _rows.length; m++) {
+						var _row = [
+							_rows[m].dimension, _rows[m].details,
+							'=HYPERLINK("' + _rows[m].link +  '","' + _rows[m].name + '")',
+							_rows[m].date ? _rows[m].date : "", (_rows[m].comments && _rows[m].comments.length > 0) ? "TRUE" : ""
+						];
+						if (_rows[m].comments && _rows[m].comments.length > 0) _row = _row.concat(_rows[m].comments)
+						_data.push(_row);
+					}
+					
+					// -- Output -- //
+					if (_data.length > 1) {
+						complete_Spreadsheet("Evidence Tracker.xlsx", _finish)(_data);
+					} else {
+						_finish();
+					}
 					
 				} catch (e) {
 					console.error("Failed to Export Evidence Tracker", e);
