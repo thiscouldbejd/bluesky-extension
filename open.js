@@ -38,7 +38,7 @@ var Formulas = function(sheet) {
     if (sheet[cell] && sheet[cell].t && sheet[cell].t == "s" &&
       sheet[cell].v && sheet[cell].v.indexOf("=") === 0) {
       
-      sheet[cell].f = sheet[cell].v;
+      sheet[cell].f = sheet[cell].v.substr(1);
       delete sheet[cell].v;
     
     }
