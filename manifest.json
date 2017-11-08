@@ -3,7 +3,7 @@
     "name": "Cloudysky",
     "short_name": "Cloudysky",
     "description": "This extension extends the export functionality of the BlueSky Platform",
-    "version": "1.0.7",
+    "version": "1.0.8",
     "icons": {
         "16": "icon16.png",
         "48": "icon48.png",
